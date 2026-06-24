@@ -1,0 +1,7 @@
+litellm
+requests
+python-dotenv
+pandas
+numpy
+jupyter
+notebook
