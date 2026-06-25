@@ -38,34 +38,18 @@ def judge_single(question: str, expected: str, model_answer: str) -> dict:
         return {"correct": False, "reasoning": f"Judge error: {e}"}
 
 def run_judge(results_path: str = "results.json", output_path: str = "judgements.json"):
-    """
-    Minimal judge: read results.json and assign a simple score/judgement for each entry.
-    This is a placeholder so the notebook can run end-to-end.
-    """
     if not os.path.exists(results_path):
         raise FileNotFoundError(f"Results file not found: {results_path}")
     with open(results_path, "r", encoding="utf-8") as f:
         results = json.load(f)
-    judgements: List[Dict] = []
-    for r in results:
-        score = random.choice([0, 1])  # placeholder binary score
-        judgements.append({
-            "question_id": r.get("question_id"),
-            "model": r.get("model"),
-            "prompt": r.get("prompt"),
-            "score": score,
-            "note": "placeholder judgement"
-        })
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(judgements, f, ensure_ascii=False, indent=2)
-    print(f"Saved {len(judgements)} judgements to {output_path}")
-    return judgements
 
-    judgements = []
+    judgements: List[Dict] = []
     for i, result in enumerate(results):
+        expected = result.get("expected", [])
+        expected_str = " | ".join(expected) if isinstance(expected, list) else str(expected)
         verdict = judge_single(
             question=result["question"],
-            expected=result["expected"],
+            expected=expected_str,
             model_answer=result["answer"],
         )
         time.sleep(2)
@@ -77,8 +61,10 @@ def run_judge(results_path: str = "results.json", output_path: str = "judgements
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(judgements, f, ensure_ascii=False, indent=2)
+    print(f"Saved {len(judgements)} judgements to {output_path}")
 
     _print_summary(judgements)
+    return judgements
 
 def _print_summary(judgements: list) -> None:
     from collections import defaultdict

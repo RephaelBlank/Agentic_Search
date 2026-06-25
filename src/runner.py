@@ -87,37 +87,58 @@ def run_experiment(n: int, seed: int, model_label: str, variant_name: str):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
-def run(n: int = 5, seed: int = 42, model: str = "llama-3-8b", prompt: str = "as_of", results_path: str = "results.json"):
-    """
-    Minimal runner: sample up to `n` questions from ../data/freshqa_filtered.csv (if present),
-    generate dummy answers, and save a simple results.json that the notebook/judge can consume.
-    """
+def run(n: int = 5, seed: int = 42, model: str = "llama-3-8b", prompt: str = "as_of", results_path: str = "results.json", data_path: str = None, questions_df=None):
     random.seed(seed)
-    data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'freshqa_filtered.csv')
-    data_path_alt = os.path.abspath(os.path.join(os.getcwd(), 'new_order', 'colab-freshqa-experiments', 'data', 'freshqa_filtered.csv'))
-    questions = None
-    if os.path.exists(data_path):
-        questions = pd.read_csv(data_path)
-    elif os.path.exists(data_path_alt):
-        questions = pd.read_csv(data_path_alt)
+
+    if questions_df is not None:
+        questions = questions_df
     else:
-        # fallback: create placeholder questions
-        questions = pd.DataFrame([{"question_id": i, "question": f"Placeholder question {i}"} for i in range(1, n+1)])
+        candidate_paths = [p for p in [
+            data_path,
+            os.path.join(os.path.dirname(__file__), '..', 'data', 'freshqa_filtered.csv'),
+            os.path.abspath(os.path.join(os.getcwd(), 'new_order', 'colab-freshqa-experiments', 'data', 'freshqa_filtered.csv')),
+        ] if p and os.path.exists(p)]
+        if candidate_paths:
+            questions = pd.read_csv(candidate_paths[0])
+        else:
+            raise FileNotFoundError(
+                "Could not find freshqa_filtered.csv. Pass data_path= or questions_df= explicitly."
+            )
+
     sampled = questions.sample(n=min(n, len(questions)), random_state=seed).reset_index(drop=True)
+
+    model_cfg = MODELS[model]
+    system_prompt = PROMPT_VARIANTS[prompt].format(datetime.date.today().strftime('%B %d, %Y'))
+
     results = []
     for _, row in sampled.iterrows():
-        qid = int(row.get("question_id", random.randint(1, 1_000_000)))
+        qid = int(row.get("question_id", row.get("id", random.randint(1, 1_000_000))))
         qtext = str(row.get("question", ""))
-        # create a dummy answer so the flow can be validated
-        answer = f"(dummy answer for model={model}, prompt={prompt}) {qtext[:120]}"
+        user_question = f"[Today is {datetime.date.today().strftime('%B %d, %Y')}] {qtext}"
+
+        expected = [
+            str(row[f"answer_{i}"])
+            for i in range(10)
+            if row.get(f"answer_{i}", "") and str(row.get(f"answer_{i}", "")).strip()
+        ]
+
+        output = run_prefetch_search(
+            model_name=model_cfg["model_id"],
+            user_question=user_question,
+            system_prompt=system_prompt,
+            api_base=model_cfg.get("api_base"),
+            api_key=model_cfg.get("api_key"),
+        )
+
         results.append({
             "question_id": qid,
             "question": qtext,
+            "expected": expected,
             "model": model,
-            "prompt": prompt,
-            "answer": answer
+            "prompt_variant": prompt,
+            "answer": output["answer"] or "",
         })
-    # write results to results_path
+
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"Saved {len(results)} results to {results_path}")
